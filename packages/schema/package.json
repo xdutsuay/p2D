@@ -1,0 +1,16 @@
+{
+  "name": "@p2d/schema",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "types.ts",
+  "exports": {
+    ".": "./types.ts",
+    "./photo-record.schema.json": "./photo-record.schema.json",
+    "./house-graph.schema.json": "./house-graph.schema.json",
+    "./photo-catalog.schema.json": "./photo-catalog.schema.json",
+    "./capture-manifest.schema.json": "./capture-manifest.schema.json",
+    "./capture-pose-sample.schema.json": "./capture-pose-sample.schema.json",
+    "./capture-snap.schema.json": "./capture-snap.schema.json"
+  }
+}

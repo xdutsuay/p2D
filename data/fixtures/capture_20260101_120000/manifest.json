@@ -1,0 +1,27 @@
+{
+  "format": "p2d.capture",
+  "version": 1,
+  "units": "m",
+  "started_at": "2026-01-01T12:00:00.000Z",
+  "ended_at": "2026-01-01T12:00:04.000Z",
+  "duration_ms": 4000,
+  "pose_count": 120,
+  "video": "video.mp4",
+  "poses": "poses.jsonl",
+  "device": {
+    "manufacturer": "fixture",
+    "model": "Synthetic",
+    "android_sdk": 34
+  },
+  "camera": {
+    "image_width": 640,
+    "image_height": 480,
+    "fx": 500,
+    "fy": 500,
+    "cx": 320,
+    "cy": 240
+  },
+  "arcore": "fixture",
+  "coord_system": "arcore_display_oriented",
+  "notes": "Synthetic capture for ingest tests."
+}

@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://p2d.local/schemas/capture-pose-sample.json",
+  "title": "CapturePoseSample",
+  "description": "One JSONL line from poses.jsonl written by the p2D Android capture app.",
+  "type": "object",
+  "required": ["t_ns", "frame", "pos_m", "quat_xyzw", "tracking"],
+  "properties": {
+    "t_ns": { "type": "integer", "description": "ARCore frame timestamp (ns)" },
+    "frame": { "type": "integer", "minimum": 0 },
+    "pos_m": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "items": { "type": "number" }
+    },
+    "quat_xyzw": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "items": { "type": "number" }
+    },
+    "facing": {
+      "type": ["string", "null"],
+      "enum": [null, "N", "NE", "E", "SE", "S", "SW", "W", "NW", "UP", "DOWN", "unknown"]
+    },
+    "tracking": { "type": "string" }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://p2d.local/schemas/capture-snap.json",
+  "title": "CaptureSnap",
+  "description": "Primary still node from snaps.jsonl — intentional photo with metric pose for Blender/labeler.",
+  "type": "object",
+  "required": ["id", "t_ns", "frame", "pos_m", "quat_xyzw", "tracking", "image", "role"],
+  "properties": {
+    "id": { "type": "string" },
+    "t_ns": { "type": "integer" },
+    "frame": { "type": "integer" },
+    "pos_m": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "items": { "type": "number" }
+    },
+    "quat_xyzw": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "items": { "type": "number" }
+    },
+    "facing": {
+      "type": ["string", "null"],
+      "enum": [null, "N", "NE", "E", "SE", "S", "SW", "W", "NW", "UP", "DOWN", "unknown"]
+    },
+    "tracking": { "type": "string" },
+    "location_type": {
+      "type": ["string", "null"],
+      "enum": [null, "exterior", "interior", "threshold"]
+    },
+    "note": { "type": "string" },
+    "image": { "type": "string" },
+    "role": { "const": "node" }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,102 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://p2d.local/schemas/photo-record.json",
+  "title": "PhotoRecord",
+  "type": "object",
+  "required": ["id", "filename"],
+  "properties": {
+    "id": { "type": "string" },
+    "filename": { "type": "string" },
+    "photo_code": { "type": "string", "description": "Short human code e.g. EXT-01, RM-BED-02" },
+    "taken_at": { "type": ["string", "null"] },
+    "facing": {
+      "type": ["string", "null"],
+      "enum": [null, "N", "NE", "E", "SE", "S", "SW", "W", "NW", "UP", "DOWN", "unknown"]
+    },
+    "location_type": {
+      "type": ["string", "null"],
+      "enum": [null, "exterior", "interior", "threshold"]
+    },
+    "room_id": { "type": ["string", "null"] },
+    "shows": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": ["walls", "doors", "windows", "pillars", "slab", "stairs", "roof", "gate", "floor", "ceiling"]
+      }
+    },
+    "adjacents": {
+      "type": "object",
+      "description": "Optional neighbors in camera space for stitching / 3D. Omit directions that do not apply.",
+      "additionalProperties": false,
+      "properties": {
+        "left": { "$ref": "#/$defs/adjacentLink" },
+        "right": { "$ref": "#/$defs/adjacentLink" },
+        "top": { "$ref": "#/$defs/adjacentLink" },
+        "bottom": { "$ref": "#/$defs/adjacentLink" },
+        "front": { "$ref": "#/$defs/adjacentLink" },
+        "back": { "$ref": "#/$defs/adjacentLink" }
+      }
+    },
+    "adjacent_left": { "type": ["string", "null"], "description": "Deprecated — use adjacents.left" },
+    "adjacent_right": { "type": ["string", "null"], "description": "Deprecated — use adjacents.right" },
+    "adjacent_ahead": { "type": ["string", "null"], "description": "Deprecated — use adjacents.front" },
+    "adjacent_behind": { "type": ["string", "null"], "description": "Deprecated — use adjacents.back" },
+    "notes": { "type": "string" },
+    "quality": {
+      "type": ["string", "null"],
+      "enum": [null, "good", "ok", "poor"]
+    },
+    "usable_for": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": ["massing", "detail", "texture", "discard"]
+      }
+    },
+    "scale_hints": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["px_a", "px_b", "length_m"],
+        "properties": {
+          "px_a": {
+            "type": "object",
+            "properties": {
+              "x": { "type": "number" },
+              "y": { "type": "number" }
+            },
+            "required": ["x", "y"]
+          },
+          "px_b": {
+            "type": "object",
+            "properties": {
+              "x": { "type": "number" },
+              "y": { "type": "number" }
+            },
+            "required": ["x", "y"]
+          },
+          "length_m": { "type": "number" },
+          "label": { "type": "string" }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "adjacentLink": {
+      "type": ["object", "null"],
+      "properties": {
+        "photo_id": {
+          "type": ["string", "null"],
+          "description": "Id of neighboring photo for stitching"
+        },
+        "note": {
+          "type": ["string", "null"],
+          "description": "Room id / place name / free text when no photo or as extra context"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

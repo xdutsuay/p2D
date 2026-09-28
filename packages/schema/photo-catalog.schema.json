@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://p2d.local/schemas/photo-catalog.json",
+  "title": "PhotoCatalog",
+  "type": "object",
+  "required": ["version", "photos"],
+  "properties": {
+    "version": { "type": "integer" },
+    "updated_at": { "type": ["string", "null"] },
+    "photos": {
+      "type": "array",
+      "items": { "$ref": "photo-record.schema.json" }
+    }
+  }
+}

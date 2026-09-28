@@ -1,0 +1,5 @@
+This app is based on Google's ARCore Android SDK sample
+`samples/recording_playback_java` (Copyright Google LLC), licensed under the
+Apache License, Version 2.0. See https://www.apache.org/licenses/LICENSE-2.0
+
+p2D-specific additions under `local.p2d.capture` are part of the p2D project.

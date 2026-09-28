@@ -1,0 +1,143 @@
+<!--
+   p2D Capture — controls at TOP so bottom snackbars never block them
+-->
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    tools:context="com.google.ar.core.examples.java.hellorecordingplayback.HelloRecordingPlaybackActivity">
+
+  <android.opengl.GLSurfaceView
+      android:id="@+id/surfaceview"
+      android:layout_width="match_parent"
+      android:layout_height="match_parent"/>
+
+  <!-- All primary controls live at the top (above snackbar zone). -->
+  <LinearLayout
+      android:id="@+id/controls_column"
+      android:layout_width="match_parent"
+      android:layout_height="wrap_content"
+      android:layout_alignParentTop="true"
+      android:orientation="vertical"
+      android:background="#CC101010"
+      android:paddingBottom="6dp"
+      android:elevation="8dp">
+
+    <TextView
+        android:id="@+id/status_text"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:padding="10dp"
+        android:textColor="@android:color/white"
+        android:textSize="13sp"
+        android:text="Idle — START anytime; SNAP when status says TRACKING"/>
+
+    <TextView
+        android:id="@+id/recording_playback_path"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingHorizontal="10dp"
+        android:paddingBottom="4dp"
+        android:textColor="#B3FFFFFF"
+        android:textSize="11sp"/>
+
+    <LinearLayout
+        android:id="@+id/location_row"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:paddingHorizontal="6dp"
+        android:paddingBottom="4dp">
+
+      <Button
+          android:id="@+id/loc_exterior"
+          android:layout_width="0dp"
+          android:layout_height="40dp"
+          android:layout_weight="1"
+          android:text="Exterior"
+          android:textSize="11sp"/>
+      <Button
+          android:id="@+id/loc_interior"
+          android:layout_width="0dp"
+          android:layout_height="40dp"
+          android:layout_weight="1"
+          android:text="Interior"
+          android:textSize="11sp"/>
+      <Button
+          android:id="@+id/loc_threshold"
+          android:layout_width="0dp"
+          android:layout_height="40dp"
+          android:layout_weight="1"
+          android:text="Door/Thresh"
+          android:textSize="11sp"/>
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/buttons_panel"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:paddingHorizontal="8dp"
+        android:baselineAligned="false">
+
+      <FrameLayout
+          android:layout_width="0dp"
+          android:layout_height="52dp"
+          android:layout_weight="1"
+          android:layout_marginEnd="4dp">
+
+        <Button
+            android:id="@+id/start_recording_button"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:textStyle="bold"
+            android:text="@string/start_recording_button_text"
+            android:textColor="@android:color/holo_green_light"
+            android:textSize="14sp"/>
+
+        <Button
+            android:id="@+id/stop_recording_button"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:visibility="gone"
+            android:textStyle="bold"
+            android:text="@string/stop_recording_button_text"
+            android:textColor="@android:color/holo_red_dark"
+            android:textSize="14sp"/>
+      </FrameLayout>
+
+      <Button
+          android:id="@+id/snap_button"
+          android:layout_width="0dp"
+          android:layout_height="52dp"
+          android:layout_weight="1.2"
+          android:layout_marginHorizontal="4dp"
+          android:textStyle="bold"
+          android:text="@string/snap_button_text"
+          android:textSize="16sp"
+          android:enabled="false"/>
+
+      <Button
+          android:id="@+id/playback_button"
+          android:layout_width="0dp"
+          android:layout_height="52dp"
+          android:layout_weight="0.8"
+          android:visibility="gone"
+          android:text="@string/playback_button_text"
+          android:textSize="12sp"
+          android:enabled="false"/>
+    </LinearLayout>
+  </LinearLayout>
+
+  <Button
+      android:id="@+id/close_playback_button"
+      android:layout_width="wrap_content"
+      android:layout_height="wrap_content"
+      android:visibility="gone"
+      android:drawableStart="@android:drawable/ic_menu_close_clear_cancel"
+      android:background="@android:color/transparent"
+      android:padding="10dp"
+      android:layout_alignParentEnd="true"
+      android:layout_below="@id/controls_column"/>
+
+</RelativeLayout>

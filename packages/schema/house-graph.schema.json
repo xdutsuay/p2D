@@ -1,0 +1,155 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://p2d.local/schemas/house-graph.json",
+  "title": "HouseGraph",
+  "type": "object",
+  "required": ["version", "rooms", "adjacencies", "structure", "meta"],
+  "properties": {
+    "version": { "type": "integer" },
+    "meta": {
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "storeys_existing": { "type": "integer" },
+        "units": { "type": "string", "enum": ["m"] },
+        "scale_factor": { "type": "number", "description": "Global multiply on approx sizes" },
+        "notes": { "type": "string" }
+      }
+    },
+    "rooms": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "name", "kind"],
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "kind": {
+            "type": "string",
+            "enum": ["room", "corridor", "porch", "bathroom", "kitchen", "open", "exterior", "utility"]
+          },
+          "approx_l_m": { "type": ["number", "null"] },
+          "approx_w_m": { "type": ["number", "null"] },
+          "ceiling_h_m": { "type": ["number", "null"] },
+          "floor_z_m": { "type": "number", "default": 0 },
+          "origin_x_m": { "type": ["number", "null"] },
+          "origin_y_m": { "type": ["number", "null"] },
+          "notes": { "type": "string" }
+        }
+      }
+    },
+    "adjacencies": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["from", "to"],
+        "properties": {
+          "from": { "type": "string" },
+          "to": { "type": "string" },
+          "shared_wall": {
+            "type": ["string", "null"],
+            "enum": [null, "N", "E", "S", "W"]
+          },
+          "opening": {
+            "type": ["string", "null"],
+            "enum": [null, "door", "window", "arch", "open", "gate"]
+          },
+          "opening_width_m": { "type": ["number", "null"] }
+        }
+      }
+    },
+    "structure": {
+      "type": "object",
+      "properties": {
+        "plot_footprint": {
+          "type": "object",
+          "properties": {
+            "width_m": { "type": "number" },
+            "depth_m": { "type": "number" },
+            "origin_x_m": { "type": "number" },
+            "origin_y_m": { "type": "number" }
+          }
+        },
+        "slab": {
+          "type": "object",
+          "properties": {
+            "thickness_m": { "type": "number" },
+            "height_m": { "type": "number", "description": "Top of slab / future first-floor floor Z" },
+            "spans": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        "pillars": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "x_m", "y_m"],
+            "properties": {
+              "id": { "type": "string" },
+              "x_m": { "type": "number" },
+              "y_m": { "type": "number" },
+              "width_m": { "type": "number" },
+              "depth_m": { "type": "number" },
+              "height_m": { "type": "number" },
+              "load_bearing": { "type": "boolean" },
+              "notes": { "type": "string" }
+            }
+          }
+        },
+        "load_bearing_walls": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id"],
+            "properties": {
+              "id": { "type": "string" },
+              "x0_m": { "type": "number" },
+              "y0_m": { "type": "number" },
+              "x1_m": { "type": "number" },
+              "y1_m": { "type": "number" },
+              "thickness_m": { "type": "number" },
+              "height_m": { "type": "number" },
+              "room_ids": { "type": "array", "items": { "type": "string" } }
+            }
+          }
+        },
+        "external_walls": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id"],
+            "properties": {
+              "id": { "type": "string" },
+              "x0_m": { "type": "number" },
+              "y0_m": { "type": "number" },
+              "x1_m": { "type": "number" },
+              "y1_m": { "type": "number" },
+              "thickness_m": { "type": "number" },
+              "height_m": { "type": "number" }
+            }
+          }
+        }
+      }
+    },
+    "extension": {
+      "type": "object",
+      "description": "First-floor planning overlays",
+      "properties": {
+        "storey_height_m": { "type": "number" },
+        "options": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "name": { "type": "string" },
+              "walls": { "type": "array" },
+              "pillars": { "type": "array" },
+              "notes": { "type": "string" }
+            }
+          }
+        }
+      }
+    }
+  },
+  "additionalProperties": true
+}

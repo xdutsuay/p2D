@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://p2d.local/schemas/capture-manifest.json",
+  "title": "CaptureManifest",
+  "description": "manifest.json for a p2D capture package (video.mp4 + poses.jsonl).",
+  "type": "object",
+  "required": [
+    "format",
+    "version",
+    "units",
+    "started_at",
+    "ended_at",
+    "pose_count",
+    "video",
+    "poses",
+    "device",
+    "camera"
+  ],
+  "properties": {
+    "format": { "const": "p2d.capture" },
+    "version": { "type": "integer", "minimum": 1 },
+    "units": { "const": "m" },
+    "started_at": { "type": "string" },
+    "ended_at": { "type": "string" },
+    "duration_ms": { "type": "integer" },
+    "pose_count": { "type": "integer", "minimum": 0 },
+    "snap_count": { "type": "integer", "minimum": 0 },
+    "primary": { "type": "string", "enum": ["snaps", "poses"] },
+    "video": { "type": "string" },
+    "poses": { "type": "string" },
+    "snaps": { "type": "string" },
+    "snaps_dir": { "type": "string" },
+    "device": {
+      "type": "object",
+      "required": ["manufacturer", "model", "android_sdk"],
+      "properties": {
+        "manufacturer": { "type": "string" },
+        "model": { "type": "string" },
+        "android_sdk": { "type": "integer" }
+      },
+      "additionalProperties": false
+    },
+    "camera": {
+      "type": "object",
+      "required": ["image_width", "image_height", "fx", "fy", "cx", "cy"],
+      "properties": {
+        "image_width": { "type": "integer" },
+        "image_height": { "type": "integer" },
+        "fx": { "type": "number" },
+        "fy": { "type": "number" },
+        "cx": { "type": "number" },
+        "cy": { "type": "number" }
+      },
+      "additionalProperties": false
+    },
+    "arcore": { "type": "string" },
+    "coord_system": { "type": "string" },
+    "notes": { "type": "string" }
+  },
+  "additionalProperties": true
+}

@@ -1,0 +1,24 @@
+{
+  "name": "p2d",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Photo labeling → house graph → Blender architectural massing",
+  "workspaces": [
+    "apps/labeler",
+    "packages/*"
+  ],
+  "scripts": {
+    "labeler": "npm run dev --workspace apps/labeler",
+    "labeler:build": "npm run build --workspace apps/labeler",
+    "seed:catalog": "node scripts/seed-catalog.mjs",
+    "label:first-pass": "node scripts/first-pass-labels.mjs",
+    "label:auto": "node scripts/auto-stitch-labels.mjs",
+    "ingest:capture": "node scripts/ingest-capture.mjs",
+    "blender:import": "node scripts/run-blender.mjs import_house_graph.py",
+    "blender:export": "node scripts/run-blender.mjs export_glb.py",
+    "blender:extension": "node scripts/run-blender.mjs build_extension.py"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

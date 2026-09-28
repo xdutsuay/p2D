@@ -1,0 +1,46 @@
+# Private house photos and labeling data — never commit
+.tempphotos_donotsteal/
+data/private/
+data/fixtures/**/*.mp4
+.blenderassets/
+*.blend1
+*.blend2
+
+# Real site plans / house photos
+docs/floor_map.png
+docs/**/*floor_map*
+**/*.jpg
+**/*.jpeg
+**/*.webp
+
+# Node / build
+node_modules/
+dist/
+.vite/
+*.local
+.DS_Store
+Thumbs.db
+
+# Env / secrets
+.env
+.env.*
+
+# Android
+apps/capture-android/.gradle/
+apps/capture-android/**/build/
+apps/capture-android/local.properties
+*.apk
+*.aab
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# IDE / local agent
+.idea/
+.vscode/
+.cursor/
+.thinkhere/
+*.swp
