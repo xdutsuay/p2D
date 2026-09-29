@@ -14,7 +14,12 @@
     "label:first-pass": "node scripts/first-pass-labels.mjs",
     "label:auto": "node scripts/auto-stitch-labels.mjs",
     "ingest:capture": "node scripts/ingest-capture.mjs",
+    "private:combine": "node scripts/build-combined-private.mjs",
+    "private:combine:fill": "node scripts/build-combined-private.mjs --with-fill",
     "blender:import": "node scripts/run-blender.mjs import_house_graph.py",
+    "blender:photos": "node scripts/run-blender.mjs import_photo_nodes.py",
+    "blender:reconstruct": "node scripts/run-blender.mjs reconstruct_walk.py",
+    "blender:fit": "node scripts/run-blender.mjs fit_walk_to_house.py",
     "blender:export": "node scripts/run-blender.mjs export_glb.py",
     "blender:extension": "node scripts/run-blender.mjs build_extension.py"
   },

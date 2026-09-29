@@ -25,6 +25,9 @@ import android.opengl.GLSurfaceView;
 import android.os.Build;
 import android.os.Build.VERSION_CODES;
 import android.os.Bundle;
+import android.os.VibrationEffect;
+import android.os.Vibrator;
+import android.os.VibratorManager;
 import android.util.Log;
 import android.view.MotionEvent;
 import android.view.View;
@@ -78,7 +81,6 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import javax.microedition.khronos.egl.EGLConfig;
 import javax.microedition.khronos.opengles.GL10;
@@ -86,6 +88,8 @@ import local.p2d.capture.CameraConfigHelper;
 import local.p2d.capture.CaptureSessionWriter;
 import local.p2d.capture.FacingSensor;
 import local.p2d.capture.R;
+import local.p2d.capture.SnapAssistant;
+import local.p2d.capture.SnapGuideView;
 import org.joda.time.DateTime;
 
 /**
@@ -143,27 +147,27 @@ public class HelloRecordingPlaybackActivity extends AppCompatActivity
   private String lastRecordingDatasetPath;
   private CaptureSessionWriter captureWriter;
   private FacingSensor facingSensor;
-  /** Low CPU for tracking + high CPU for SNAP stills. */
+  /** Low CPU for smooth tracking; stills use the same config (HD switch disabled — unstable on device). */
   private CameraConfigHelper.Pair cameraPair;
-  private volatile boolean usingSnapConfig = false;
-  private final AtomicBoolean cameraSwitchInProgress = new AtomicBoolean(false);
   private Button startRecordingButton;
   private Button stopRecordingButton;
   private Button startPlaybackButton;
   private Button stopPlaybackButton;
   private Button snapButton;
+  private Button autoSnapButton;
   private Button locExteriorButton;
   private Button locInteriorButton;
   private Button locThresholdButton;
   private TextView recordingPlaybackPathTextView;
   private TextView statusTextView;
-  /** Requested on UI thread; consumed on GL thread with a live Frame. */
-  private final AtomicBoolean snapRequested = new AtomicBoolean(false);
+  private SnapGuideView snapGuideView;
+  private final SnapAssistant snapAssistant = new SnapAssistant();
   private volatile String selectedLocationType = "interior";
   private volatile String lastTrackingLabel = "—";
   private volatile String planeHint = "";
   private int uiSnapCount = 0;
   private int statusUiTick = 0;
+  private volatile boolean lastSnapUiReady = false;
 
   private Session session;
   private final SnackbarHelper messageSnackbarHelper = new SnackbarHelper();
@@ -230,6 +234,8 @@ public class HelloRecordingPlaybackActivity extends AppCompatActivity
     startPlaybackButton = findViewById(R.id.playback_button);
     stopPlaybackButton = findViewById(R.id.close_playback_button);
     snapButton = findViewById(R.id.snap_button);
+    autoSnapButton = findViewById(R.id.auto_snap_button);
+    snapGuideView = findViewById(R.id.snap_guide);
     locExteriorButton = findViewById(R.id.loc_exterior);
     locInteriorButton = findViewById(R.id.loc_interior);
     locThresholdButton = findViewById(R.id.loc_threshold);
@@ -238,11 +244,37 @@ public class HelloRecordingPlaybackActivity extends AppCompatActivity
     startPlaybackButton.setOnClickListener(view -> startPlayback());
     stopPlaybackButton.setOnClickListener(view -> stopPlayback());
     snapButton.setOnClickListener(view -> requestSnap());
+    if (autoSnapButton != null) {
+      autoSnapButton.setOnClickListener(view -> toggleAutoSnap());
+    }
     locExteriorButton.setOnClickListener(view -> setLocationType("exterior"));
     locInteriorButton.setOnClickListener(view -> setLocationType("interior"));
     locThresholdButton.setOnClickListener(view -> setLocationType("threshold"));
     setLocationType("interior");
+    snapAssistant.setAutoEnabled(true);
+    refreshAutoSnapButton();
     updateUI();
+  }
+
+  private void vibrateTick(int ms) {
+    try {
+      Vibrator vibrator;
+      if (Build.VERSION.SDK_INT >= 31) {
+        VibratorManager vm = (VibratorManager) getSystemService(VIBRATOR_MANAGER_SERVICE);
+        vibrator = vm != null ? vm.getDefaultVibrator() : null;
+      } else {
+        vibrator = (Vibrator) getSystemService(VIBRATOR_SERVICE);
+      }
+      if (vibrator == null || !vibrator.hasVibrator()) {
+        return;
+      }
+      if (Build.VERSION.SDK_INT >= 26) {
+        vibrator.vibrate(VibrationEffect.createOneShot(ms, VibrationEffect.DEFAULT_AMPLITUDE));
+      } else {
+        vibrator.vibrate(ms);
+      }
+    } catch (Throwable ignored) {
+    }
   }
 
   private void setLocationType(String type) {
@@ -255,71 +287,40 @@ public class HelloRecordingPlaybackActivity extends AppCompatActivity
     refreshStatusUi();
   }
 
+  private void toggleAutoSnap() {
+    snapAssistant.setAutoEnabled(!snapAssistant.isAutoEnabled());
+    refreshAutoSnapButton();
+    messageSnackbarHelper.showMessageForShortDuration(
+        this,
+        snapAssistant.isAutoEnabled()
+            ? "AUTO on — walk; snaps when frame stays green"
+            : "AUTO off — tap SNAP when green");
+  }
+
+  private void refreshAutoSnapButton() {
+    if (autoSnapButton == null) {
+      return;
+    }
+    boolean on = snapAssistant.isAutoEnabled();
+    autoSnapButton.setText(on ? R.string.auto_snap_on_text : R.string.auto_snap_off_text);
+    autoSnapButton.setBackgroundColor(on ? 0xFF2E7D32 : 0xFF424242);
+  }
+
   private void requestSnap() {
     if (currentState.get() != AppState.RECORDING || captureWriter == null) {
       messageSnackbarHelper.showMessageForShortDuration(this, "Start capture first");
       return;
     }
-    if (cameraSwitchInProgress.get()) {
-      messageSnackbarHelper.showMessageForShortDuration(this, "Camera switching…");
-      return;
+    if (snapAssistant.getState() == SnapAssistant.ReadyState.DUPLICATE) {
+      snapAssistant.forceNextDuplicate();
+      messageSnackbarHelper.showMessageForShortDuration(this, "Forcing snap of this view…");
+    } else if (!snapAssistant.isSnapReady() && !snapAssistant.isRetrying()) {
+      messageSnackbarHelper.showMessageForShortDuration(
+          this, "Wait for green frame — " + snapAssistant.getReason());
+      // Still queue a retry so a near-ready tap can succeed.
     }
-    // Switch to high-res CPU for this still, then SNAP on next TRACKING frame.
-    if (cameraPair != null && cameraPair.canSwitchForSnap() && !usingSnapConfig) {
-      switchCameraConfig(
-          cameraPair.snap,
-          /* after= */ () -> {
-            usingSnapConfig = true;
-            snapRequested.set(true);
-            planeHint = "HD snap " + cameraPair.snap.label;
-            refreshStatusUi();
-          });
-      return;
-    }
-    snapRequested.set(true);
-  }
-
-  /** Pause session, set CameraConfig, resume. Safe while recording (autoStopOnPause=false). */
-  private void switchCameraConfig(
-      final CameraConfigHelper.Selection selection, final Runnable afterSuccess) {
-    if (selection == null || session == null) {
-      if (afterSuccess != null) afterSuccess.run();
-      return;
-    }
-    if (!cameraSwitchInProgress.compareAndSet(false, true)) {
-      return;
-    }
-    runOnUiThread(
-        () -> {
-          try {
-            session.pause();
-            CameraConfigHelper.apply(session, selection);
-            session.resume();
-            if (afterSuccess != null) {
-              afterSuccess.run();
-            }
-          } catch (Throwable t) {
-            Log.e(TAG, "Camera config switch failed", t);
-            messageSnackbarHelper.showMessageForShortDuration(
-                this, "HD switch failed — snapping at current res");
-            snapRequested.set(true);
-          } finally {
-            cameraSwitchInProgress.set(false);
-          }
-        });
-  }
-
-  private void restoreTrackingConfigAfterSnap() {
-    if (cameraPair == null || !cameraPair.canSwitchForSnap() || !usingSnapConfig) {
-      return;
-    }
-    switchCameraConfig(
-        cameraPair.tracking,
-        () -> {
-          usingSnapConfig = false;
-          planeHint = "track " + cameraPair.tracking.label;
-          refreshStatusUi();
-        });
+    snapAssistant.requestManualSnap();
+    updateSnapChrome();
   }
 
   private void refreshStatusUi() {
@@ -331,11 +332,12 @@ public class HelloRecordingPlaybackActivity extends AppCompatActivity
               planeHint == null || planeHint.isEmpty() ? "" : (" · " + planeHint);
           String cam = "";
           if (cameraPair != null) {
-            cam =
-                usingSnapConfig
-                    ? (" · HD " + cameraPair.snap.label)
-                    : (" · track " + cameraPair.tracking.label);
+            cam = " · " + cameraPair.tracking.label;
           }
+          String ready =
+              currentState.get() == AppState.RECORDING
+                  ? (" · " + snapAssistant.getState().name().toLowerCase(Locale.US))
+                  : "";
           statusTextView.setText(
               state
                   + " · "
@@ -344,8 +346,41 @@ public class HelloRecordingPlaybackActivity extends AppCompatActivity
                   + uiSnapCount
                   + " · loc "
                   + selectedLocationType
+                  + ready
                   + plane
                   + cam);
+          updateSnapChrome();
+        });
+  }
+
+  private void updateSnapChrome() {
+    runOnUiThread(
+        () -> {
+          boolean recording = currentState.get() == AppState.RECORDING;
+          if (snapGuideView != null) {
+            snapGuideView.setGuide(
+                recording ? snapAssistant.getState() : SnapAssistant.ReadyState.IDLE,
+                recording ? snapAssistant.getReason() : "",
+                recording);
+          }
+          if (snapButton != null && recording) {
+            snapButton.setEnabled(true);
+            lastSnapUiReady = snapAssistant.isSnapReady();
+            if (snapAssistant.isRetrying()
+                || snapAssistant.getState() == SnapAssistant.ReadyState.SNAPPING) {
+              snapButton.setText("…");
+              snapButton.setBackgroundColor(0xFF0277BD);
+            } else if (snapAssistant.getState() == SnapAssistant.ReadyState.DUPLICATE) {
+              snapButton.setText("DUP?");
+              snapButton.setBackgroundColor(0xFFE64A19);
+            } else if (snapAssistant.getState() == SnapAssistant.ReadyState.READY) {
+              snapButton.setText(R.string.snap_button_text);
+              snapButton.setBackgroundColor(0xFF2E7D32);
+            } else {
+              snapButton.setText("WAIT");
+              snapButton.setBackgroundColor(0xFF616161);
+            }
+          }
         });
   }
 
@@ -374,19 +409,17 @@ public class HelloRecordingPlaybackActivity extends AppCompatActivity
           return;
         }
 
-        // Create the session — VGA/low for tracking; SNAP temporarily switches to highest CPU.
+        // Create the session — keep low CPU for stable tracking; stills use same config.
         session = new Session(/* context= */ this);
         try {
           cameraPair = CameraConfigHelper.selectTrackingAndSnap(session);
           CameraConfigHelper.apply(session, cameraPair.tracking);
-          usingSnapConfig = false;
-          planeHint = "track " + cameraPair.tracking.label + " / snap " + cameraPair.snap.label;
+          planeHint = "track " + cameraPair.tracking.label;
           Log.i(
               TAG,
-              "Camera configs tracking="
+              "Camera config tracking="
                   + cameraPair.tracking.label
-                  + " snap="
-                  + cameraPair.snap.label);
+                  + " (HD snap switch disabled)");
         } catch (Throwable t) {
           Log.w(TAG, "Could not set camera configs; using default", t);
           cameraPair = null;
@@ -527,7 +560,7 @@ public class HelloRecordingPlaybackActivity extends AppCompatActivity
     GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT | GLES20.GL_DEPTH_BUFFER_BIT);
 
     // Do not render anything or call session methods until session is created.
-    if (session == null || cameraSwitchInProgress.get()) {
+    if (session == null) {
       return;
     }
 
@@ -545,6 +578,53 @@ public class HelloRecordingPlaybackActivity extends AppCompatActivity
       Camera camera = frame.getCamera();
       lastTrackingLabel = camera.getTrackingState().name();
 
+      int featureCount = 0;
+      PointCloud heldCloud = null;
+      try {
+        heldCloud = frame.acquirePointCloud();
+        featureCount = countConfidentFeatures(heldCloud);
+      } catch (Throwable t) {
+        Log.w(TAG, "Point cloud unavailable", t);
+      }
+
+      String failReason = "";
+      if (camera.getTrackingState() != TrackingState.TRACKING) {
+        failReason = TrackingStateHelper.getTrackingFailureReasonString(camera);
+      }
+
+      boolean shouldSnap = false;
+      if (currentState.get() == AppState.RECORDING && captureWriter != null) {
+        shouldSnap =
+            snapAssistant.updateFrame(
+                camera.getTrackingState(),
+                featureCount,
+                camera.getDisplayOrientedPose(),
+                failReason);
+
+        if (snapAssistant.stateChangedForLog()) {
+          Pose p = camera.getDisplayOrientedPose();
+          float[] t = p.getTranslation();
+          captureWriter.appendReadyEvent(
+              frame.getTimestamp(),
+              snapAssistant.getState().name(),
+              featureCount,
+              snapAssistant.isAutoEnabled(),
+              snapAssistant.getReason(),
+              t,
+              CaptureSessionWriter.yawDegFromPose(p));
+        }
+        if (snapAssistant.consumeJustBecameReady()) {
+          runOnUiThread(() -> vibrateTick(35));
+        }
+      }
+
+      if ((++statusUiTick % 8) == 0
+          || shouldSnap
+          || snapAssistant.isRetrying()
+          || lastSnapUiReady != snapAssistant.isSnapReady()) {
+        refreshStatusUi();
+      }
+
       // p2D: append metric pose + facing while recording.
       if (currentState.get() == AppState.RECORDING && captureWriter != null) {
         String facing = facingSensor != null ? facingSensor.currentFacingOrNull() : null;
@@ -555,34 +635,31 @@ public class HelloRecordingPlaybackActivity extends AppCompatActivity
         }
         captureWriter.appendPose(frame, camera, facing);
 
-        if (snapRequested.compareAndSet(true, false)) {
+        if (shouldSnap) {
           final String snapId =
               captureWriter.takeSnap(
                   frame, camera, facing, selectedLocationType, /* note= */ "");
-          runOnUiThread(
-              () -> {
-                if (snapId == null) {
+          if (snapId != null) {
+            snapAssistant.recordSuccessfulSnap(
+                SnapAssistant.SnapPose.from(camera.getDisplayOrientedPose()));
+            final int count = captureWriter.getSnapCount();
+            runOnUiThread(
+                () -> {
+                  uiSnapCount = count;
+                  vibrateTick(55);
                   messageSnackbarHelper.showMessageForShortDuration(
-                      HelloRecordingPlaybackActivity.this,
-                      "Snap failed — wait for TRACKING");
-                  restoreTrackingConfigAfterSnap();
-                } else {
-                  uiSnapCount = captureWriter != null ? captureWriter.getSnapCount() : uiSnapCount + 1;
-                  String resNote =
-                      usingSnapConfig && cameraPair != null
-                          ? (" @ " + cameraPair.snap.label)
-                          : "";
-                  messageSnackbarHelper.showMessageForShortDuration(
-                      HelloRecordingPlaybackActivity.this, "Saved " + snapId + resNote);
+                      HelloRecordingPlaybackActivity.this, "Saved " + snapId);
                   refreshStatusUi();
-                  restoreTrackingConfigAfterSnap();
-                }
-              });
+                });
+          } else {
+            // Re-queue a short retry if JPEG failed mid-tracking.
+            snapAssistant.requestManualSnap();
+            runOnUiThread(
+                () ->
+                    messageSnackbarHelper.showMessageForShortDuration(
+                        HelloRecordingPlaybackActivity.this, "Snap encode failed — retrying…"));
+          }
         }
-      }
-
-      if ((++statusUiTick % 30) == 0) {
-        refreshStatusUi();
       }
 
       // Handle one tap per frame.
@@ -607,9 +684,12 @@ public class HelloRecordingPlaybackActivity extends AppCompatActivity
       // If not tracking, skip 3D overlays — status bar only (no bottom snackbar over buttons).
       if (camera.getTrackingState() == TrackingState.PAUSED) {
         lastTrackingLabel = "PAUSED";
-        planeHint = TrackingStateHelper.getTrackingFailureReasonString(camera);
-        if ((++statusUiTick % 15) == 0) {
-          refreshStatusUi();
+        if (failReason != null && !failReason.isEmpty()) {
+          planeHint = failReason;
+        }
+        if (heldCloud != null) {
+          heldCloud.close();
+          heldCloud = null;
         }
         return;
       }
@@ -628,18 +708,22 @@ public class HelloRecordingPlaybackActivity extends AppCompatActivity
       final float[] colorCorrectionRgba = new float[4];
       frame.getLightEstimate().getColorCorrection(colorCorrectionRgba, 0);
 
-      // Visualize tracked points.
-      // Use try-with-resources to automatically release the point cloud.
-      try (PointCloud pointCloud = frame.acquirePointCloud()) {
-        pointCloudRenderer.update(pointCloud);
-        pointCloudRenderer.draw(viewmtx, projmtx);
+      // Visualize tracked points (reuse cloud acquired above).
+      if (heldCloud != null) {
+        try {
+          pointCloudRenderer.update(heldCloud);
+          pointCloudRenderer.draw(viewmtx, projmtx);
+        } finally {
+          heldCloud.close();
+          heldCloud = null;
+        }
       }
 
       // Surface search → status bar only. Never indefinite bottom snackbar (it covered buttons).
       if (hasTrackingPlane()) {
-        planeHint = "surfaces OK";
+        planeHint = "surfaces OK · pts " + featureCount;
       } else {
-        planeHint = "searching surfaces (OK — you can still START)";
+        planeHint = "searching surfaces · pts " + featureCount;
       }
 
       // Visualize detected planes.
@@ -667,6 +751,25 @@ public class HelloRecordingPlaybackActivity extends AppCompatActivity
       // Avoid crashing the application due to unhandled exceptions.
       Log.e(TAG, "Exception on the OpenGL thread", t);
     }
+  }
+
+  /** Count point-cloud features with reasonable confidence. */
+  private static int countConfidentFeatures(PointCloud pointCloud) {
+    if (pointCloud == null) {
+      return 0;
+    }
+    FloatBuffer pts = pointCloud.getPoints();
+    if (pts == null) {
+      return 0;
+    }
+    int count = 0;
+    // Each point: x, y, z, confidence
+    for (int i = 0; i + 3 < pts.limit(); i += 4) {
+      if (pts.get(i + 3) >= 0.15f) {
+        count++;
+      }
+    }
+    return count;
   }
 
   /** Try to create an anchor if the user has tapped the screen. */
@@ -858,6 +961,11 @@ public class HelloRecordingPlaybackActivity extends AppCompatActivity
         startPlaybackButton.setEnabled(false);
         if (snapButton != null) {
           snapButton.setEnabled(false);
+          snapButton.setText(R.string.snap_button_text);
+          snapButton.setBackgroundColor(0xFF424242);
+        }
+        if (snapGuideView != null) {
+          snapGuideView.setGuide(SnapAssistant.ReadyState.IDLE, "", false);
         }
         recordingPlaybackPathTextView.setText(
             getResources()
@@ -874,13 +982,15 @@ public class HelloRecordingPlaybackActivity extends AppCompatActivity
         stopPlaybackButton.setEnabled(false);
         startPlaybackButton.setEnabled(false);
         if (snapButton != null) {
-          snapButton.setEnabled(true);
+          // Enabled/color driven by snapAssistant via updateSnapChrome().
+          snapButton.setEnabled(false);
         }
         recordingPlaybackPathTextView.setText(
             getResources()
                 .getString(
                     R.string.recording_path_text,
                     lastRecordingDatasetPath == null ? "" : lastRecordingDatasetPath));
+        updateSnapChrome();
         break;
       case PLAYBACK:
         startRecordingButton.setVisibility(View.INVISIBLE);
@@ -892,6 +1002,10 @@ public class HelloRecordingPlaybackActivity extends AppCompatActivity
         stopPlaybackButton.setEnabled(true);
         if (snapButton != null) {
           snapButton.setEnabled(false);
+          snapButton.setText(R.string.snap_button_text);
+        }
+        if (snapGuideView != null) {
+          snapGuideView.setGuide(SnapAssistant.ReadyState.IDLE, "", false);
         }
         recordingPlaybackPathTextView.setText("");
         break;
@@ -917,15 +1031,14 @@ public class HelloRecordingPlaybackActivity extends AppCompatActivity
         }
         captureWriter = new CaptureSessionWriter(captureDir);
         if (cameraPair != null) {
-          // Manifest records both; snaps use high-res when switch succeeds.
-          captureWriter.setCameraConfigLabel(
-              "track=" + cameraPair.tracking.label + ";snap=" + cameraPair.snap.label);
+          captureWriter.setCameraConfigLabel("track=" + cameraPair.tracking.label);
           captureWriter.setExpectedImageSize(
-              cameraPair.snap.cpuSize.getWidth(), cameraPair.snap.cpuSize.getHeight());
+              cameraPair.tracking.cpuSize.getWidth(), cameraPair.tracking.cpuSize.getHeight());
         }
         uiSnapCount = 0;
-        snapRequested.set(false);
-        usingSnapConfig = false;
+        boolean autoOn = snapAssistant.isAutoEnabled();
+        snapAssistant.resetSession();
+        snapAssistant.setAutoEnabled(autoOn);
       } catch (IOException e) {
         logAndShowErrorMessage("Failed to open poses.jsonl: " + e.getMessage());
         return;

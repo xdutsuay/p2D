@@ -27,7 +27,15 @@ Each session writes (v2 snap-first):
 
 Schema / types: [`packages/schema`](../packages/schema/) (`CapturePoseSample`, `CaptureManifest`). Field mapping: [`packages/schema/CAPTURE_MAPPING.md`](../packages/schema/CAPTURE_MAPPING.md).
 
-We **do not** rely on ARCore’s proprietary MP4 sensor tracks for offline tools — poses live in the JSONL sidecar.
+We do **not** rely on ARCore’s proprietary MP4 sensor tracks for offline tools — poses live in the JSONL sidecar.
+
+## Snap UX (v2.1)
+
+- **Green frame** = ready (TRACKING + enough feature points). Amber = hunting. Orange = near-duplicate of an earlier snap.
+- **SNAP** retries ~1s for a TRACKING frame (helps Samsung flicker). Tap again on DUP? to force.
+- **AUTO on by default** — rolling ready window (flicker-tolerant); spacing ~0.45 m / 22° / 0.7 s. Soft haptic on green + save.
+- Stills use the **tracking** camera resolution (HD switch disabled — it was dropping tracking on device).
+- `ready.jsonl` logs ready-state transitions for offline recovery.
 
 ## Build & install the app
 
@@ -52,9 +60,10 @@ Base code is Google’s `recording_playback_java` sample (Apache-2.0); see [`app
 
 1. Good light; wait until planes / **track TRACKING** on the status line.
 2. **START**, then walk rooms slowly.
-3. At each important view tap **SNAP** — app briefly switches to the highest CPU resolution, saves the still, then returns to low-res tracking.
-   - Toggle **Exterior / Interior / Door-Thresh** before snapping.
-   - Status shows `track WxH / snap WxH` and `HD …` while capturing.
+3. Walk — **AUTO is on by default**. Green frame + short buzz = ready; autosnap fires after a brief stable window when you move/turn.
+   - Toggle **Exterior / Interior / Door-Thresh** before important views.
+   - Orange frame = already snapped — move on, or tap SNAP again to force.
+   - `ready.jsonl` logs green/hunting transitions for offline recovery.
 4. Video + `poses.jsonl` keep recording in the background (fill / trajectory).
 5. **STOP** — copy the `capture_*` folder:
 

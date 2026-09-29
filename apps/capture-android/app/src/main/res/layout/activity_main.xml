@@ -12,6 +12,14 @@
       android:layout_width="match_parent"
       android:layout_height="match_parent"/>
 
+  <!-- Drive-scan style frame: green = ready to SNAP. Does not eat touches. -->
+  <local.p2d.capture.SnapGuideView
+      android:id="@+id/snap_guide"
+      android:layout_width="match_parent"
+      android:layout_height="match_parent"
+      android:clickable="false"
+      android:focusable="false"/>
+
   <!-- All primary controls live at the top (above snackbar zone). -->
   <LinearLayout
       android:id="@+id/controls_column"
@@ -30,7 +38,7 @@
         android:padding="10dp"
         android:textColor="@android:color/white"
         android:textSize="13sp"
-        android:text="Idle — START anytime; SNAP when status says TRACKING"/>
+        android:text="Idle — START, then SNAP when the frame turns green"/>
 
     <TextView
         android:id="@+id/recording_playback_path"
@@ -69,6 +77,13 @@
           android:layout_height="40dp"
           android:layout_weight="1"
           android:text="Door/Thresh"
+          android:textSize="11sp"/>
+      <Button
+          android:id="@+id/auto_snap_button"
+          android:layout_width="0dp"
+          android:layout_height="40dp"
+          android:layout_weight="0.9"
+          android:text="@string/auto_snap_off_text"
           android:textSize="11sp"/>
     </LinearLayout>
 

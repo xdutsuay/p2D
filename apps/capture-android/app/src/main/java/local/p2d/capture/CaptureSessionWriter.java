@@ -43,11 +43,13 @@ public final class CaptureSessionWriter implements AutoCloseable {
   private final File snapsDir;
   private final BufferedWriter posesOut;
   private final BufferedWriter snapsOut;
+  private final BufferedWriter readyOut;
   private final String startedAtIso;
   private final long startElapsedRealtimeNs;
   private int frameIndex = 0;
   private int poseCount = 0;
   private int snapCount = 0;
+  private int readyEventCount = 0;
   private float[] fxFyCxCy = null;
   private int imageWidth = 0;
   private int imageHeight = 0;
@@ -66,6 +68,8 @@ public final class CaptureSessionWriter implements AutoCloseable {
         new BufferedWriter(new FileWriter(new File(captureDir, "poses.jsonl"), false));
     this.snapsOut =
         new BufferedWriter(new FileWriter(new File(captureDir, "snaps.jsonl"), false));
+    this.readyOut =
+        new BufferedWriter(new FileWriter(new File(captureDir, "ready.jsonl"), false));
     this.startedAtIso = java.time.Instant.now().toString();
     this.startElapsedRealtimeNs = System.nanoTime();
   }
@@ -93,6 +97,46 @@ public final class CaptureSessionWriter implements AutoCloseable {
 
   public int getSnapCount() {
     return snapCount;
+  }
+
+  /**
+   * Log UI ready-state transitions (green frame moments) for offline recovery / debugging.
+   */
+  public synchronized void appendReadyEvent(
+      long tNs,
+      String state,
+      int featureCount,
+      boolean autoEnabled,
+      String reason,
+      float[] posM,
+      double yawDeg) {
+    try {
+      String pos =
+          posM == null || posM.length < 3
+              ? "null"
+              : String.format(
+                  Locale.US, "[%.6f,%.6f,%.6f]", posM[0], posM[1], posM[2]);
+      String line =
+          String.format(
+              Locale.US,
+              "{\"t_ns\":%d,\"frame\":%d,\"state\":\"%s\",\"features\":%d,\"auto\":%s,\"yaw_deg\":%.2f,\"pos_m\":%s,\"reason\":%s}",
+              tNs,
+              Math.max(0, frameIndex - 1),
+              escape(state),
+              featureCount,
+              autoEnabled ? "true" : "false",
+              yawDeg,
+              pos,
+              jsonStr(reason == null ? "" : reason));
+      readyOut.write(line);
+      readyOut.newLine();
+      readyEventCount++;
+      if (readyEventCount % 10 == 0) {
+        readyOut.flush();
+      }
+    } catch (IOException e) {
+      Log.e(TAG, "Failed to write ready event", e);
+    }
   }
 
   /** Append one trajectory sample (fill data for stitching). */
@@ -206,6 +250,7 @@ public final class CaptureSessionWriter implements AutoCloseable {
   public synchronized void finish(String arcoreVersionHint) throws IOException {
     posesOut.flush();
     snapsOut.flush();
+    readyOut.flush();
     long durationMs = (System.nanoTime() - startElapsedRealtimeNs) / 1_000_000L;
     String fx = fxFyCxCy == null ? "0" : String.format(Locale.US, "%.4f", fxFyCxCy[0]);
     String fy = fxFyCxCy == null ? "0" : String.format(Locale.US, "%.4f", fxFyCxCy[1]);
@@ -232,9 +277,13 @@ public final class CaptureSessionWriter implements AutoCloseable {
             + "  \"snap_count\": "
             + snapCount
             + ",\n"
+            + "  \"ready_event_count\": "
+            + readyEventCount
+            + ",\n"
             + "  \"video\": \"video.mp4\",\n"
             + "  \"poses\": \"poses.jsonl\",\n"
             + "  \"snaps\": \"snaps.jsonl\",\n"
+            + "  \"ready\": \"ready.jsonl\",\n"
             + "  \"snaps_dir\": \"snaps\",\n"
             + "  \"device\": {\n"
             + "    \"manufacturer\": \""
@@ -286,7 +335,11 @@ public final class CaptureSessionWriter implements AutoCloseable {
     try {
       posesOut.close();
     } finally {
-      snapsOut.close();
+      try {
+        snapsOut.close();
+      } finally {
+        readyOut.close();
+      }
     }
   }
 

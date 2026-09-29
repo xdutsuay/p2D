@@ -19,6 +19,8 @@
   <string translatable="false" name="start_recording_button_text">START</string>
   <string translatable="false" name="stop_recording_button_text">STOP</string>
   <string translatable="false" name="snap_button_text">SNAP</string>
+  <string translatable="false" name="auto_snap_off_text">AUTO off</string>
+  <string translatable="false" name="auto_snap_on_text">AUTO on</string>
   <string translatable="false" name="playback_button_text">PLAY</string>
   <string translatable="false" name="playback_path_text">Last: %1$s</string>
   <string translatable="false" name="recording_path_text">Rec: %1$s</string>
