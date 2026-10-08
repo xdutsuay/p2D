@@ -88,9 +88,24 @@ npm run ingest:capture -- ./data/fixtures/capture_20260101_120000
 
 Frames with `tracking != TRACKING` are marked `usable_for: ["discard"]` and `quality: "poor"`. Dark / featureless rooms will drop poses — re-walk with more visual features or better light.
 
+**Relocalization guard (app):** if a pose jumps more than ~1.5 m between frames, the app treats it as a relocalization/teleport. Snaps are held for ~8 frames (frame turns amber with *“Re-locating… hold still”*) so a node is not recorded at a bogus position. This prevents the multi-kilometre path blow-ups seen in long walks.
+
+## Live AI assist (OpenRouter)
+
+During recording the app can label snaps and show short coaching tips:
+
+- **Local coach** — path extent / sparse-snap / tracking-loss hints (no network).
+- **OpenRouter vision** — after each snap (rate-limited), sends a downscaled JPEG and writes `assist.jsonl`.
+
+Setup (pick one):
+
+1. Copy `apps/capture-android/secrets.properties.example` → `secrets.properties`, set `openrouter.api.key`, optionally `openrouter.model=auto` (maps to `openrouter/auto`), then rebuild.
+2. Or on device: tap **AI key** / long-press **AI** and paste the key (stored in app prefs).
+
+Toggle **AI on/off** in the top bar. Tips show in the yellow assist line; labels land in `assist.jsonl` next to `snaps.jsonl`.
+
 ## Out of scope (for now)
 
 - Full mesh / Gaussian splat
-- On-device room naming
-- iOS / App Store / Play Store release
 - Feeding poses into Blender cameras (follow-up on `import_house_graph.py`)
+- iOS / App Store / Play Store release

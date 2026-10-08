@@ -21,6 +21,10 @@
   <string translatable="false" name="snap_button_text">SNAP</string>
   <string translatable="false" name="auto_snap_off_text">AUTO off</string>
   <string translatable="false" name="auto_snap_on_text">AUTO on</string>
+  <string translatable="false" name="assist_off_text">AI off</string>
+  <string translatable="false" name="assist_on_text">AI on</string>
+  <string translatable="false" name="assist_need_key_text">AI key</string>
+  <string translatable="false" name="assist_idle_text">AI assist — long-press AI to paste OpenRouter key</string>
   <string translatable="false" name="playback_button_text">PLAY</string>
   <string translatable="false" name="playback_path_text">Last: %1$s</string>
   <string translatable="false" name="recording_path_text">Rec: %1$s</string>

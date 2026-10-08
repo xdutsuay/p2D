@@ -196,10 +196,33 @@ def orient_card(obj, cam_bl, yaw_deg, stand_off=1.1):
     obj.rotation_euler = (math.pi / 2.0, 0.0, yaw)
 
 
+def resolve_capture(root: Path, explicit: str | None) -> Path:
+    if explicit:
+        p = Path(explicit)
+        if not p.is_absolute():
+            p = root / p
+        if (p / "poses.jsonl").exists():
+            return p
+        raise SystemExit(f"Missing poses.jsonl in {p}")
+    private_caps = root / "data" / "private" / "captures"
+    candidates = []
+    if private_caps.exists():
+        for d in private_caps.rglob("capture_*"):
+            if d.is_dir() and (d / "poses.jsonl").exists():
+                candidates.append(d)
+    if candidates:
+        return max(candidates, key=lambda d: d.stat().st_mtime)
+    legacy = root / ".tempphotos_donotsteal" / "capture_20260929_120630"
+    if (legacy / "poses.jsonl").exists():
+        return legacy
+    raise SystemExit("No capture package found under data/private/captures")
+
+
 def main():
     args = argv_after_dd()
     root = Path(args[0]) if args else Path(__file__).resolve().parents[2]
-    capture = root / ".tempphotos_donotsteal" / "capture_20260929_120630"
+    capture = resolve_capture(root, args[1] if len(args) > 1 else None)
+    print(f"Using capture: {capture}")
     catalog_path = root / "data" / "private" / "photo_catalog.json"
     photos_dir = root / "data" / "private" / "photos"
     out_blend = root / ".blenderassets" / "walk_reconstruction.blend"

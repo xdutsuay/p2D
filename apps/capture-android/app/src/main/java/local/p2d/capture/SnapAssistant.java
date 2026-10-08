@@ -73,6 +73,11 @@ public final class SnapAssistant {
   private SnapPose lastCameraPose = null;
   private long lastAutoSnapElapsedMs = 0;
   private boolean justBecameReady = false;
+  private int teleportStreak = 0;
+  /** A pose jump this large is a relocalization, not real movement. */
+  public static final float RELOCALIZE_JUMP_M = 1.5f;
+  /** Consecutive relocalized frames needed to accept the new origin. */
+  public static final int RELOCALIZE_SETTLE_FRAMES = 8;
 
   public void resetSession() {
     snaps.clear();
@@ -91,6 +96,7 @@ public final class SnapAssistant {
     lastCameraPose = null;
     lastAutoSnapElapsedMs = 0;
     justBecameReady = false;
+    teleportStreak = 0;
   }
 
   public void setAutoEnabled(boolean enabled) {
@@ -182,11 +188,25 @@ public final class SnapAssistant {
       TrackingState trackingState, int featureCount, Pose cameraPose, String trackingFailReason) {
     lastFeatureCount = featureCount;
     lastTracking = trackingState == TrackingState.TRACKING;
-    lastCameraPose = cameraPose != null ? SnapPose.from(cameraPose) : null;
+    SnapPose newPose = cameraPose != null ? SnapPose.from(cameraPose) : null;
+    boolean relocalizing = false;
+    if (newPose != null && lastCameraPose != null
+        && distanceM(newPose, lastCameraPose) > RELOCALIZE_JUMP_M) {
+      // ARCore jumped: relocalization or teleport. Hold snaps briefly and warn the user
+      // instead of recording a node in a bogus place.
+      teleportStreak++;
+      relocalizing = teleportStreak < RELOCALIZE_SETTLE_FRAMES;
+      if (!relocalizing) {
+        teleportStreak = 0;
+      }
+    } else if (newPose != null) {
+      teleportStreak = 0;
+    }
+    lastCameraPose = newPose;
 
     boolean trackingOk = lastTracking;
     boolean featuresOk = featureCount >= MIN_FEATURES;
-    boolean viewOk = trackingOk && featuresOk;
+    boolean viewOk = trackingOk && featuresOk && !relocalizing;
 
     pushReady(viewOk);
 
@@ -224,6 +244,12 @@ public final class SnapAssistant {
           trackingFailReason != null && !trackingFailReason.isEmpty()
               ? trackingFailReason
               : "Aim at textured surfaces";
+      return false;
+    }
+
+    if (relocalizing) {
+      state = ReadyState.HUNTING;
+      reason = "Re-locating… hold still, don't snap yet";
       return false;
     }
 

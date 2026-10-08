@@ -44,12 +44,21 @@ public final class CaptureSessionWriter implements AutoCloseable {
   private final BufferedWriter posesOut;
   private final BufferedWriter snapsOut;
   private final BufferedWriter readyOut;
+  private final BufferedWriter assistOut;
+  private final java.util.concurrent.ExecutorService imageWriter =
+      java.util.concurrent.Executors.newSingleThreadExecutor(
+          r -> {
+            Thread t = new Thread(r, "p2d-snap-writer");
+            t.setDaemon(true);
+            return t;
+          });
   private final String startedAtIso;
   private final long startElapsedRealtimeNs;
   private int frameIndex = 0;
   private int poseCount = 0;
   private int snapCount = 0;
   private int readyEventCount = 0;
+  private int assistCount = 0;
   private float[] fxFyCxCy = null;
   private int imageWidth = 0;
   private int imageHeight = 0;
@@ -70,8 +79,15 @@ public final class CaptureSessionWriter implements AutoCloseable {
         new BufferedWriter(new FileWriter(new File(captureDir, "snaps.jsonl"), false));
     this.readyOut =
         new BufferedWriter(new FileWriter(new File(captureDir, "ready.jsonl"), false));
+    this.assistOut =
+        new BufferedWriter(new FileWriter(new File(captureDir, "assist.jsonl"), false));
     this.startedAtIso = java.time.Instant.now().toString();
     this.startElapsedRealtimeNs = System.nanoTime();
+  }
+
+  /** Absolute path to a snap JPEG written by {@link #takeSnap}. */
+  public File snapJpegFile(String snapId) {
+    return new File(snapsDir, snapId + ".jpg");
   }
 
   public File getCaptureDir() {
@@ -139,6 +155,41 @@ public final class CaptureSessionWriter implements AutoCloseable {
     }
   }
 
+  /** Append one live-assist label/tip row (OpenRouter or local coach). */
+  public synchronized void appendAssist(
+      String snapId,
+      String roomGuess,
+      String locationType,
+      String shows,
+      String tip,
+      String model,
+      String error,
+      long latencyMs,
+      float pathExtentM) {
+    try {
+      String line =
+          String.format(
+              Locale.US,
+              "{\"t_ns\":%d,\"snap_id\":%s,\"room_guess\":%s,\"location_type\":%s,\"shows\":%s,\"tip\":%s,\"model\":%s,\"error\":%s,\"latency_ms\":%d,\"path_extent_m\":%.3f}",
+              System.nanoTime(),
+              jsonStr(snapId),
+              jsonStr(roomGuess),
+              jsonStr(locationType),
+              jsonStr(shows),
+              jsonStr(tip),
+              jsonStr(model),
+              jsonStr(error),
+              latencyMs,
+              pathExtentM);
+      assistOut.write(line);
+      assistOut.newLine();
+      assistOut.flush();
+      assistCount++;
+    } catch (IOException e) {
+      Log.e(TAG, "Failed to write assist event", e);
+    }
+  }
+
   /** Append one trajectory sample (fill data for stitching). */
   public synchronized void appendPose(Frame frame, Camera camera, String facing) {
     if (camera == null) {
@@ -190,6 +241,21 @@ public final class CaptureSessionWriter implements AutoCloseable {
       String facing,
       String locationType,
       String note) {
+    return takeSnap(frame, camera, facing, locationType, note, null);
+  }
+
+  /**
+   * Capture a PRIMARY node. If {@code fullFrameBitmap} is provided (the on-screen framebuffer the
+   * user actually saw, wide + high-res) it is written instead of the narrower CPU camera image.
+   * The JPEG is compressed on a background thread so the GL thread is not blocked.
+   */
+  public synchronized String takeSnap(
+      Frame frame,
+      Camera camera,
+      String facing,
+      String locationType,
+      String note,
+      android.graphics.Bitmap fullFrameBitmap) {
     if (camera == null || frame == null) {
       return null;
     }
@@ -205,7 +271,21 @@ public final class CaptureSessionWriter implements AutoCloseable {
       File jpegFile = new File(captureDir, relImage);
 
       int[] jpegSize = new int[2];
-      if (!saveFrameJpeg(frame, jpegFile, jpegSize)) {
+      if (fullFrameBitmap != null) {
+        jpegSize[0] = fullFrameBitmap.getWidth();
+        jpegSize[1] = fullFrameBitmap.getHeight();
+        final android.graphics.Bitmap bmp = fullFrameBitmap;
+        imageWriter.execute(
+            () -> {
+              try (FileOutputStream fos = new FileOutputStream(jpegFile)) {
+                bmp.compress(android.graphics.Bitmap.CompressFormat.JPEG, 88, fos);
+              } catch (IOException e) {
+                Log.e(TAG, "Full-view snap write failed", e);
+              } finally {
+                bmp.recycle();
+              }
+            });
+      } else if (!saveFrameJpeg(frame, jpegFile, jpegSize)) {
         Log.e(TAG, "Snap JPEG encode failed");
         return null;
       }
@@ -251,6 +331,7 @@ public final class CaptureSessionWriter implements AutoCloseable {
     posesOut.flush();
     snapsOut.flush();
     readyOut.flush();
+    assistOut.flush();
     long durationMs = (System.nanoTime() - startElapsedRealtimeNs) / 1_000_000L;
     String fx = fxFyCxCy == null ? "0" : String.format(Locale.US, "%.4f", fxFyCxCy[0]);
     String fy = fxFyCxCy == null ? "0" : String.format(Locale.US, "%.4f", fxFyCxCy[1]);
@@ -280,10 +361,14 @@ public final class CaptureSessionWriter implements AutoCloseable {
             + "  \"ready_event_count\": "
             + readyEventCount
             + ",\n"
+            + "  \"assist_count\": "
+            + assistCount
+            + ",\n"
             + "  \"video\": \"video.mp4\",\n"
             + "  \"poses\": \"poses.jsonl\",\n"
             + "  \"snaps\": \"snaps.jsonl\",\n"
             + "  \"ready\": \"ready.jsonl\",\n"
+            + "  \"assist\": \"assist.jsonl\",\n"
             + "  \"snaps_dir\": \"snaps\",\n"
             + "  \"device\": {\n"
             + "    \"manufacturer\": \""
@@ -332,13 +417,26 @@ public final class CaptureSessionWriter implements AutoCloseable {
 
   @Override
   public void close() throws IOException {
+    imageWriter.shutdown();
+    try {
+      if (!imageWriter.awaitTermination(5, java.util.concurrent.TimeUnit.SECONDS)) {
+        imageWriter.shutdownNow();
+      }
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      imageWriter.shutdownNow();
+    }
     try {
       posesOut.close();
     } finally {
       try {
         snapsOut.close();
       } finally {
-        readyOut.close();
+        try {
+          readyOut.close();
+        } finally {
+          assistOut.close();
+        }
       }
     }
   }

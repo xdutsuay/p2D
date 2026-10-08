@@ -15,6 +15,27 @@
  */
 apply plugin: 'com.android.application'
 
+def localProps = new Properties()
+def localPropsFile = rootProject.file('local.properties')
+if (localPropsFile.exists()) {
+    localPropsFile.withInputStream { localProps.load(it) }
+}
+def secretsProps = new Properties()
+def secretsFile = rootProject.file('secrets.properties')
+if (secretsFile.exists()) {
+    secretsFile.withInputStream { secretsProps.load(it) }
+}
+def openRouterKey = (secretsProps['openrouter.api.key']
+        ?: localProps['openrouter.api.key']
+        ?: '').toString().replace('\\', '\\\\').replace('"', '\\"')
+def rawModel = (secretsProps['openrouter.model']
+        ?: localProps['openrouter.model']
+        ?: 'openrouter/auto').toString().trim()
+if (rawModel.equalsIgnoreCase('auto') || rawModel.equalsIgnoreCase('openrouter-auto') || rawModel.isEmpty()) {
+    rawModel = 'openrouter/auto'
+}
+def openRouterModel = rawModel.replace('\\', '\\\\').replace('"', '\\"')
+
 android {
     namespace "local.p2d.capture"
     compileSdkVersion 36
@@ -24,12 +45,17 @@ android {
         // AR Required apps must declare minSdkVersion >= 24.
         minSdkVersion 24
         targetSdkVersion 34
-        versionCode 1
-        versionName '0.1.0'
+        versionCode 2
+        versionName '0.2.0'
+        buildConfigField "String", "OPENROUTER_API_KEY", "\"${openRouterKey}\""
+        buildConfigField "String", "OPENROUTER_MODEL", "\"${openRouterModel}\""
     }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
+    }
+    buildFeatures {
+        buildConfig true
     }
     buildTypes {
         release {

@@ -41,6 +41,16 @@
         android:text="Idle — START, then SNAP when the frame turns green"/>
 
     <TextView
+        android:id="@+id/assist_text"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingHorizontal="10dp"
+        android:paddingBottom="4dp"
+        android:textColor="#FFC107"
+        android:textSize="12sp"
+        android:text="@string/assist_idle_text"/>
+
+    <TextView
         android:id="@+id/recording_playback_path"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -84,6 +94,13 @@
           android:layout_height="40dp"
           android:layout_weight="0.9"
           android:text="@string/auto_snap_off_text"
+          android:textSize="11sp"/>
+      <Button
+          android:id="@+id/assist_button"
+          android:layout_width="0dp"
+          android:layout_height="40dp"
+          android:layout_weight="0.8"
+          android:text="@string/assist_off_text"
           android:textSize="11sp"/>
     </LinearLayout>
 

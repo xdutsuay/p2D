@@ -29,6 +29,7 @@ Thumbs.db
 apps/capture-android/.gradle/
 apps/capture-android/**/build/
 apps/capture-android/local.properties
+apps/capture-android/secrets.properties
 *.apk
 *.aab
 

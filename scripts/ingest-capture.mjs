@@ -4,6 +4,7 @@
  *
  * Primary: snaps.jsonl + snaps/*.jpg (intentional nodes for Blender/labeler)
  * Fill: video keyframes from poses.jsonl only if --fill-video or no snaps
+ * Assist: assist.jsonl (OpenRouter room/shows/tips) merged onto matching snaps
  *
  * Usage:
  *   node scripts/ingest-capture.mjs <capture_dir>
@@ -225,6 +226,16 @@ function main() {
 
   const snaps = readJsonl(snapsPath);
   const poses = readJsonl(posesPath);
+  const assistPath = path.join(captureDir, manifest.assist || "assist.jsonl");
+  const assistBySnap = new Map();
+  for (const a of readJsonl(assistPath)) {
+    if (!a?.snap_id) continue;
+    const prev = assistBySnap.get(a.snap_id);
+    const aOk = a.error == null || a.error === "";
+    const prevOk = prev && (prev.error == null || prev.error === "");
+    // Prefer successful labels; otherwise keep the latest row.
+    if (!prev || aOk || !prevOk) assistBySnap.set(a.snap_id, a);
+  }
   const videoPath = path.join(captureDir, manifest.video || "video.mp4");
   const slug = sessionSlug(captureDir, manifest);
   const t0 = poses[0]?.t_ns ?? snaps[0]?.t_ns ?? 0;
@@ -299,23 +310,66 @@ function main() {
         }
       }
     }
+    const assist = n.kind === "snap" && s.id ? assistBySnap.get(s.id) : null;
+    const assistOk = assist && (assist.error == null || assist.error === "");
+    const shows = [];
+    if (assistOk && typeof assist.shows === "string" && assist.shows.trim()) {
+      for (const tag of assist.shows.split(/[,;|/]+/)) {
+        const t = tag.trim().toLowerCase().replace(/\s+/g, "_");
+        if (t && !shows.includes(t)) shows.push(t);
+      }
+    }
+    const locationType =
+      (assistOk && assist.location_type) || s.location_type || null;
+    const roomGuess =
+      assistOk && assist.room_guess && assist.room_guess !== "unknown"
+        ? String(assist.room_guess).trim()
+        : "";
+    const tip = assistOk && assist.tip ? String(assist.tip).trim() : "";
+    const noteParts = [
+      n.kind === "snap"
+        ? `ingest:snap ${s.id || ""}`
+        : `ingest:fill frame=${s.frame}`,
+    ];
+    if (roomGuess) noteParts.push(`assist_room=${roomGuess}`);
+    if (tip) noteParts.push(`assist_tip=${tip}`);
     return {
       id: n.code.toLowerCase().replace(/[^a-z0-9_]+/g, "_"),
       filename: n.filename,
       photo_code: n.code,
       taken_at: takenAt(manifest, s),
       facing: s.facing ?? null,
-      location_type: s.location_type ?? null,
+      location_type: locationType,
       room_id: null,
-      shows: [],
+      room_guess: roomGuess || null,
+      shows,
       adjacents: {},
-      notes:
-        n.kind === "snap"
-          ? `ingest:snap ${s.id || ""} pos_m=[${(s.pos_m || []).map((x) => Number(x).toFixed(2)).join(",")}]`
-          : `ingest:fill frame=${s.frame} pos_m=[${(s.pos_m || []).map((x) => Number(x).toFixed(2)).join(",")}]`,
+      notes: noteParts.join(" · "),
       quality: discarded ? "poor" : "ok",
       usable_for: discarded ? ["discard"] : ["massing", "texture"],
       scale_hints,
+      source: n.kind === "snap" ? "ar_snap" : "ar_fill",
+      pose_m: s.pos_m
+        ? {
+            pos_m: s.pos_m,
+            quat_xyzw: s.quat_xyzw ?? null,
+            frame: s.frame ?? null,
+            t_ns: s.t_ns ?? null,
+            snap_id: s.id ?? null,
+          }
+        : null,
+      assist: assistOk
+        ? {
+            room_guess: roomGuess || null,
+            location_type: assist.location_type || null,
+            shows: assist.shows || null,
+            tip: tip || null,
+            model: assist.model || null,
+            latency_ms: assist.latency_ms ?? null,
+          }
+        : assist
+          ? { error: assist.error || "assist_failed", model: assist.model || null }
+          : null,
     };
   });
 
@@ -346,6 +400,7 @@ function main() {
     return {
       ...p,
       room_id: prev.room_id ?? p.room_id,
+      room_guess: prev.room_guess ?? p.room_guess,
       shows: prev.shows?.length ? prev.shows : p.shows,
       location_type: prev.location_type ?? p.location_type,
       notes:
@@ -353,6 +408,9 @@ function main() {
           ? prev.notes
           : p.notes,
       scale_hints: prev.scale_hints?.length ? prev.scale_hints : p.scale_hints,
+      pose_m: p.pose_m ?? prev.pose_m ?? null,
+      source: p.source ?? prev.source ?? null,
+      assist: p.assist ?? prev.assist ?? null,
     };
   });
 
@@ -398,11 +456,14 @@ function main() {
     ) + "\n"
   );
 
+  const assistOkCount = newPhotos.filter((p) => p.assist && !p.assist.error).length;
   console.log(
     `Ingested ${newPhotos.length} nodes (${snaps.length} snaps` +
       `${needFill ? ", video fill on" : ", video fill off"}) → ${catalogPath}`
   );
-  console.log(`  added=${added} updated=${updated}`);
+  console.log(
+    `  added=${added} updated=${updated} assist_ok=${assistOkCount}/${assistBySnap.size}`
+  );
 }
 
 main();

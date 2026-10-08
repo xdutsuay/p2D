@@ -28,11 +28,14 @@ import android.os.Bundle;
 import android.os.VibrationEffect;
 import android.os.Vibrator;
 import android.os.VibratorManager;
+import android.text.InputType;
 import android.util.Log;
 import android.view.MotionEvent;
 import android.view.View;
 import android.widget.Button;
+import android.widget.EditText;
 import android.widget.TextView;
+import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
@@ -84,9 +87,12 @@ import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 import javax.microedition.khronos.egl.EGLConfig;
 import javax.microedition.khronos.opengles.GL10;
+import local.p2d.capture.BuildConfig;
 import local.p2d.capture.CameraConfigHelper;
 import local.p2d.capture.CaptureSessionWriter;
 import local.p2d.capture.FacingSensor;
+import local.p2d.capture.LiveAssistClient;
+import local.p2d.capture.PathExtentCoach;
 import local.p2d.capture.R;
 import local.p2d.capture.SnapAssistant;
 import local.p2d.capture.SnapGuideView;
@@ -155,19 +161,28 @@ public class HelloRecordingPlaybackActivity extends AppCompatActivity
   private Button stopPlaybackButton;
   private Button snapButton;
   private Button autoSnapButton;
+  private Button assistButton;
   private Button locExteriorButton;
   private Button locInteriorButton;
   private Button locThresholdButton;
   private TextView recordingPlaybackPathTextView;
   private TextView statusTextView;
+  private TextView assistTextView;
   private SnapGuideView snapGuideView;
   private final SnapAssistant snapAssistant = new SnapAssistant();
+  private final PathExtentCoach pathCoach = new PathExtentCoach();
+  private LiveAssistClient liveAssist;
   private volatile String selectedLocationType = "interior";
   private volatile String lastTrackingLabel = "—";
   private volatile String planeHint = "";
+  private volatile String assistTip = "";
   private int uiSnapCount = 0;
   private int statusUiTick = 0;
   private volatile boolean lastSnapUiReady = false;
+  private final int[] glViewport = new int[2];
+  private volatile String pendingSnapFacing = null;
+  private volatile Frame lastSnapFrame = null;
+  private volatile Camera lastSnapCamera = null;
 
   private Session session;
   private final SnackbarHelper messageSnackbarHelper = new SnackbarHelper();
@@ -229,16 +244,21 @@ public class HelloRecordingPlaybackActivity extends AppCompatActivity
 
     recordingPlaybackPathTextView = findViewById(R.id.recording_playback_path);
     statusTextView = findViewById(R.id.status_text);
+    assistTextView = findViewById(R.id.assist_text);
     startRecordingButton = findViewById(R.id.start_recording_button);
     stopRecordingButton = findViewById(R.id.stop_recording_button);
     startPlaybackButton = findViewById(R.id.playback_button);
     stopPlaybackButton = findViewById(R.id.close_playback_button);
     snapButton = findViewById(R.id.snap_button);
     autoSnapButton = findViewById(R.id.auto_snap_button);
+    assistButton = findViewById(R.id.assist_button);
     snapGuideView = findViewById(R.id.snap_guide);
     locExteriorButton = findViewById(R.id.loc_exterior);
     locInteriorButton = findViewById(R.id.loc_interior);
     locThresholdButton = findViewById(R.id.loc_threshold);
+    liveAssist =
+        new LiveAssistClient(this, BuildConfig.OPENROUTER_API_KEY, BuildConfig.OPENROUTER_MODEL);
+    liveAssist.setListener(this::onAssistResult);
     startRecordingButton.setOnClickListener(view -> startRecording());
     stopRecordingButton.setOnClickListener(view -> stopRecording());
     startPlaybackButton.setOnClickListener(view -> startPlayback());
@@ -247,12 +267,23 @@ public class HelloRecordingPlaybackActivity extends AppCompatActivity
     if (autoSnapButton != null) {
       autoSnapButton.setOnClickListener(view -> toggleAutoSnap());
     }
+    if (assistButton != null) {
+      assistButton.setOnClickListener(view -> toggleAssist());
+      assistButton.setOnLongClickListener(
+          view -> {
+            promptOpenRouterKey();
+            return true;
+          });
+    }
     locExteriorButton.setOnClickListener(view -> setLocationType("exterior"));
     locInteriorButton.setOnClickListener(view -> setLocationType("interior"));
     locThresholdButton.setOnClickListener(view -> setLocationType("threshold"));
     setLocationType("interior");
     snapAssistant.setAutoEnabled(true);
     refreshAutoSnapButton();
+    refreshAssistButton();
+    assistTip = liveAssist.hasApiKey() ? pathCoach.hint() : getString(R.string.assist_idle_text);
+    updateAssistTipUi();
     updateUI();
   }
 
@@ -297,6 +328,67 @@ public class HelloRecordingPlaybackActivity extends AppCompatActivity
             : "AUTO off — tap SNAP when green");
   }
 
+  private void toggleAssist() {
+    if (liveAssist == null) {
+      return;
+    }
+    if (!liveAssist.hasApiKey()) {
+      promptOpenRouterKey();
+      return;
+    }
+    liveAssist.setEnabled(!liveAssist.wantsEnabled());
+    refreshAssistButton();
+    messageSnackbarHelper.showMessageForShortDuration(
+        this,
+        liveAssist.isEnabled()
+            ? "AI assist on — labels snaps via OpenRouter"
+            : "AI assist off — local path tips only");
+    if (!liveAssist.isEnabled()) {
+      assistTip = pathCoach.hint();
+      updateAssistTipUi();
+    }
+  }
+
+  private void promptOpenRouterKey() {
+    final EditText input = new EditText(this);
+    input.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
+    input.setHint("sk-or-v1-…");
+    String existing = liveAssist != null ? liveAssist.getApiKey() : "";
+    if (existing != null && !existing.isEmpty()) {
+      input.setText(existing);
+    }
+    new AlertDialog.Builder(this)
+        .setTitle("OpenRouter API key")
+        .setMessage("Stored on-device only. Long-press AI anytime to change.")
+        .setView(input)
+        .setPositiveButton(
+            "Save",
+            (d, w) -> {
+              if (liveAssist != null) {
+                liveAssist.setApiKey(input.getText().toString());
+                liveAssist.setEnabled(true);
+                refreshAssistButton();
+                assistTip =
+                    liveAssist.hasApiKey()
+                        ? "AI ready — tips appear after snaps"
+                        : getString(R.string.assist_idle_text);
+                updateAssistTipUi();
+              }
+            })
+        .setNeutralButton(
+            "Clear",
+            (d, w) -> {
+              if (liveAssist != null) {
+                liveAssist.setApiKey("");
+                refreshAssistButton();
+                assistTip = getString(R.string.assist_idle_text);
+                updateAssistTipUi();
+              }
+            })
+        .setNegativeButton("Cancel", null)
+        .show();
+  }
+
   private void refreshAutoSnapButton() {
     if (autoSnapButton == null) {
       return;
@@ -304,6 +396,68 @@ public class HelloRecordingPlaybackActivity extends AppCompatActivity
     boolean on = snapAssistant.isAutoEnabled();
     autoSnapButton.setText(on ? R.string.auto_snap_on_text : R.string.auto_snap_off_text);
     autoSnapButton.setBackgroundColor(on ? 0xFF2E7D32 : 0xFF424242);
+  }
+
+  private void refreshAssistButton() {
+    if (assistButton == null || liveAssist == null) {
+      return;
+    }
+    if (!liveAssist.hasApiKey()) {
+      assistButton.setText(R.string.assist_need_key_text);
+      assistButton.setBackgroundColor(0xFF6D4C41);
+    } else if (liveAssist.wantsEnabled()) {
+      assistButton.setText(R.string.assist_on_text);
+      assistButton.setBackgroundColor(0xFF1565C0);
+    } else {
+      assistButton.setText(R.string.assist_off_text);
+      assistButton.setBackgroundColor(0xFF424242);
+    }
+  }
+
+  private void updateAssistTipUi() {
+    runOnUiThread(
+        () -> {
+          if (assistTextView == null) {
+            return;
+          }
+          String tip = assistTip == null || assistTip.isEmpty() ? pathCoach.hint() : assistTip;
+          assistTextView.setText(tip);
+        });
+  }
+
+  private void onAssistResult(LiveAssistClient.Result result) {
+    if (result == null) {
+      return;
+    }
+    CaptureSessionWriter writer = captureWriter;
+    if (writer != null) {
+      writer.appendAssist(
+          result.snapId,
+          result.roomGuess,
+          result.locationType,
+          result.shows,
+          result.tip,
+          result.model,
+          result.rawError,
+          result.latencyMs,
+          pathCoach.extentM());
+    }
+    // Suggest location_type when model is confident and user is still on default interior.
+    if (result.ok()
+        && result.locationType != null
+        && !result.locationType.isEmpty()
+        && !"interior".equals(result.locationType)
+        && "interior".equals(selectedLocationType)) {
+      runOnUiThread(() -> setLocationType(result.locationType));
+    }
+    assistTip = result.shortTip();
+    updateAssistTipUi();
+    if (result.ok()) {
+      runOnUiThread(
+          () ->
+              messageSnackbarHelper.showMessageForShortDuration(
+                  HelloRecordingPlaybackActivity.this, result.shortTip()));
+    }
   }
 
   private void requestSnap() {
@@ -493,6 +647,10 @@ public class HelloRecordingPlaybackActivity extends AppCompatActivity
 
   @Override
   protected void onDestroy() {
+    if (liveAssist != null) {
+      liveAssist.shutdown();
+      liveAssist = null;
+    }
     if (session != null) {
       // Explicitly close ARCore Session to release native resources.
       // Review the API reference for important considerations before calling close() in apps with
@@ -551,7 +709,65 @@ public class HelloRecordingPlaybackActivity extends AppCompatActivity
   @Override
   public void onSurfaceChanged(GL10 gl, int width, int height) {
     displayRotationHelper.onSurfaceChanged(width, height);
+    glViewport[0] = width;
+    glViewport[1] = height;
     GLES20.glViewport(0, 0, width, height);
+  }
+
+  /** Read the current GL framebuffer (the full preview the user sees) into a bitmap. */
+  private android.graphics.Bitmap captureFrameBitmap(int width, int height) {
+    if (width <= 0 || height <= 0) {
+      return null;
+    }
+    java.nio.ByteBuffer buf =
+        java.nio.ByteBuffer.allocateDirect(width * height * 4).order(java.nio.ByteOrder.nativeOrder());
+    GLES20.glFinish();
+    GLES20.glReadPixels(
+        0, 0, width, height, GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, buf);
+    android.graphics.Bitmap bmp =
+        android.graphics.Bitmap.createBitmap(width, height, android.graphics.Bitmap.Config.ARGB_8888);
+    buf.rewind();
+    bmp.copyPixelsFromBuffer(buf);
+    android.graphics.Matrix flip = new android.graphics.Matrix();
+    flip.postScale(1f, -1f);
+    return android.graphics.Bitmap.createBitmap(bmp, 0, 0, width, height, flip, false);
+  }
+
+  /** Persist a snap using the already-read framebuffer + the latest pose/facing. */
+  private void runSnapAfterDraw(android.graphics.Bitmap bmp) {
+    final String facing = pendingSnapFacing;
+    final String snapId =
+        captureWriter.takeSnap(
+            lastSnapFrame, lastSnapCamera, facing, selectedLocationType, "", bmp);
+    if (snapId != null) {
+      snapAssistant.recordSuccessfulSnap(
+          SnapAssistant.SnapPose.from(lastSnapCamera.getDisplayOrientedPose()));
+      pathCoach.onSnap();
+      final int count = captureWriter.getSnapCount();
+      final File jpeg = captureWriter.snapJpegFile(snapId);
+      final String coachHint = pathCoach.hint();
+      final float extent = pathCoach.extentM();
+      if (liveAssist != null) {
+        liveAssist.enqueueSnapAssist(
+            snapId, jpeg, facing, selectedLocationType, count, extent, coachHint);
+      }
+      assistTip = coachHint;
+      updateAssistTipUi();
+      runOnUiThread(
+          () -> {
+            uiSnapCount = count;
+            vibrateTick(55);
+            messageSnackbarHelper.showMessageForShortDuration(
+                HelloRecordingPlaybackActivity.this, "Saved " + snapId);
+            refreshStatusUi();
+          });
+    } else {
+      snapAssistant.requestManualSnap();
+      runOnUiThread(
+          () ->
+              messageSnackbarHelper.showMessageForShortDuration(
+                  HelloRecordingPlaybackActivity.this, "Snap encode failed — retrying…"));
+    }
   }
 
   @Override
@@ -626,6 +842,7 @@ public class HelloRecordingPlaybackActivity extends AppCompatActivity
       }
 
       // p2D: append metric pose + facing while recording.
+      android.graphics.Bitmap snapFrameBitmap = null;
       if (currentState.get() == AppState.RECORDING && captureWriter != null) {
         String facing = facingSensor != null ? facingSensor.currentFacingOrNull() : null;
         if (facing == null) {
@@ -634,31 +851,34 @@ public class HelloRecordingPlaybackActivity extends AppCompatActivity
                   CaptureSessionWriter.yawDegFromPose(camera.getDisplayOrientedPose()));
         }
         captureWriter.appendPose(frame, camera, facing);
+        Pose displayPose = camera.getDisplayOrientedPose();
+        float[] poseT = displayPose.getTranslation();
+        pathCoach.onPose(
+            poseT[0],
+            poseT[1],
+            poseT[2],
+            camera.getTrackingState() == TrackingState.TRACKING);
+        if ((statusUiTick % 45) == 0) {
+          // Keep local path coach visible between OpenRouter replies.
+          String tip = assistTip;
+          boolean keepLlmTip =
+              tip != null
+                  && !tip.isEmpty()
+                  && !tip.startsWith("Assist:")
+                  && liveAssist != null
+                  && liveAssist.isEnabled();
+          if (!keepLlmTip) {
+            assistTip = pathCoach.hint();
+            updateAssistTipUi();
+          }
+        }
 
         if (shouldSnap) {
-          final String snapId =
-              captureWriter.takeSnap(
-                  frame, camera, facing, selectedLocationType, /* note= */ "");
-          if (snapId != null) {
-            snapAssistant.recordSuccessfulSnap(
-                SnapAssistant.SnapPose.from(camera.getDisplayOrientedPose()));
-            final int count = captureWriter.getSnapCount();
-            runOnUiThread(
-                () -> {
-                  uiSnapCount = count;
-                  vibrateTick(55);
-                  messageSnackbarHelper.showMessageForShortDuration(
-                      HelloRecordingPlaybackActivity.this, "Saved " + snapId);
-                  refreshStatusUi();
-                });
-          } else {
-            // Re-queue a short retry if JPEG failed mid-tracking.
-            snapAssistant.requestManualSnap();
-            runOnUiThread(
-                () ->
-                    messageSnackbarHelper.showMessageForShortDuration(
-                        HelloRecordingPlaybackActivity.this, "Snap encode failed — retrying…"));
-          }
+          // Grab exactly what the user sees (wide, high-res) after the preview is drawn.
+          snapFrameBitmap = captureFrameBitmap(glViewport[0], glViewport[1]);
+          pendingSnapFacing = facing;
+          lastSnapFrame = frame;
+          lastSnapCamera = camera;
         }
       }
 
@@ -677,6 +897,12 @@ public class HelloRecordingPlaybackActivity extends AppCompatActivity
 
       // If frame is ready, render camera preview image to the GL surface.
       backgroundRenderer.draw(frame);
+
+      // p2D: a snap was requested this frame — save exactly what the user sees now.
+      if (snapFrameBitmap != null && captureWriter != null) {
+        runSnapAfterDraw(snapFrameBitmap);
+        snapFrameBitmap = null;
+      }
 
       // Keep the screen unlocked while tracking, but allow it to lock when tracking stops.
       trackingStateHelper.updateKeepScreenOnFlag(camera.getTrackingState());
@@ -1036,6 +1262,9 @@ public class HelloRecordingPlaybackActivity extends AppCompatActivity
               cameraPair.tracking.cpuSize.getWidth(), cameraPair.tracking.cpuSize.getHeight());
         }
         uiSnapCount = 0;
+        pathCoach.reset();
+        assistTip = pathCoach.hint();
+        updateAssistTipUi();
         boolean autoOn = snapAssistant.isAutoEnabled();
         snapAssistant.resetSession();
         snapAssistant.setAutoEnabled(autoOn);
